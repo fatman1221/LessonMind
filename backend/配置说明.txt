@@ -1,0 +1,31 @@
+环境配置文件设置说明
+====================
+
+1. 复制 env.example 文件为 .env
+   Windows: copy env.example .env
+   Linux/Mac: cp env.example .env
+
+2. 编辑 .env 文件，修改以下配置：
+
+   【必需配置】
+   - DB_PASSWORD: 您的MySQL数据库密码
+   - DASHSCOPE_API_KEY: 通义千问API密钥
+     获取地址：https://dashscope.console.aliyun.com/
+   
+   - SECRET_KEY: JWT密钥（生产环境必须修改为随机字符串）
+   
+   【可选配置】
+   - Redis配置：如果使用Redis缓存，请配置相关参数
+   - 其他配置：根据需要修改
+
+3. 确保MySQL数据库已创建
+   执行: mysql -u root -p < ../database/init.sql
+
+4. 启动服务
+   python main.py
+
+注意事项：
+- .env 文件包含敏感信息，不要提交到Git仓库
+- 生产环境必须修改 SECRET_KEY
+- 确保数据库服务已启动
+
