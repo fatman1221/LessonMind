@@ -23,6 +23,12 @@ export const analysisApi = {
     return api.post('/analysis/questions/export-word', questionIds, {
       responseType: 'blob'
     })
+  },
+  deleteQuestion(id) {
+    return api.delete(`/analysis/questions/${id}`)
+  },
+  deleteQuestions(ids) {
+    return api.post('/analysis/questions/delete-batch', ids)
   }
 }
 

@@ -84,6 +84,10 @@
           <el-icon><Download /></el-icon>
           导出选中题目 ({{ selectedQuestions.length }})
         </el-button>
+        <el-button type="danger" @click="deleteSelectedQuestions">
+          <el-icon><Delete /></el-icon>
+          删除选中题目 ({{ selectedQuestions.length }})
+        </el-button>
       </div>
 
       <!-- 分页 -->
@@ -172,7 +176,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Download } from '@element-plus/icons-vue'
+import { Plus, Download, Delete } from '@element-plus/icons-vue'
 import { analysisApi } from '@/api/analysis'
 
 const questionList = ref([])
@@ -308,11 +312,40 @@ const deleteQuestion = async (id) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    // 这里应该调用删除API，暂时只提示
+    await analysisApi.deleteQuestion(id)
     ElMessage.success('删除成功')
     loadQuestions()
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败：' + (error.response?.data?.detail || error.message))
+    }
+  }
+}
+
+const deleteSelectedQuestions = async () => {
+  if (selectedQuestions.value.length === 0) {
+    ElMessage.warning('请选择要删除的题目')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedQuestions.value.length} 道题目吗？此操作不可恢复！`,
+      '警告',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await analysisApi.deleteQuestions(selectedQuestions.value)
+    ElMessage.success(`成功删除 ${selectedQuestions.value.length} 道题目`)
+    selectedQuestions.value = []
+    loadQuestions()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败：' + (error.response?.data?.detail || error.message))
+    }
   }
 }
 

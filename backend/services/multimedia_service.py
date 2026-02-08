@@ -25,41 +25,99 @@ class MultimediaService:
         prs.slide_width = Inches(10)
         prs.slide_height = Inches(7.5)
         
-        for slide_data in ppt_content:
+        # 如果没有内容，创建默认封面页
+        if not ppt_content or len(ppt_content) == 0:
             slide = prs.slides.add_slide(prs.slide_layouts[6])  # 空白布局
-            
-            # 添加标题
-            if "title" in slide_data:
+            title_box = slide.shapes.add_textbox(
+                Inches(1), Inches(3), Inches(8), Inches(1.5)
+            )
+            title_frame = title_box.text_frame
+            title_frame.text = "教学课件"
+            title_para = title_frame.paragraphs[0]
+            title_para.font.size = Pt(44)
+            title_para.font.bold = True
+            title_para.font.color.rgb = RGBColor(0, 0, 0)
+        else:
+            for slide_data in ppt_content:
+                if not isinstance(slide_data, dict):
+                    continue
+                    
+                slide = prs.slides.add_slide(prs.slide_layouts[6])  # 空白布局
+                
+                # 添加标题
+                title_text = slide_data.get("title", "无标题")
                 title_box = slide.shapes.add_textbox(
                     Inches(0.5), Inches(0.5), Inches(9), Inches(1)
                 )
                 title_frame = title_box.text_frame
-                title_frame.text = slide_data["title"]
+                title_frame.text = str(title_text)
                 title_para = title_frame.paragraphs[0]
                 title_para.font.size = Pt(32)
                 title_para.font.bold = True
                 title_para.font.color.rgb = RGBColor(0, 0, 0)
-            
-            # 添加内容
-            if "content" in slide_data and slide_data["content"]:
-                content_y = Inches(2)
-                for i, item in enumerate(slide_data["content"]):
-                    if i >= 6:  # 限制每页最多6条
-                        break
-                    
+                
+                # 添加内容
+                content_list = slide_data.get("content", [])
+                if not isinstance(content_list, list):
+                    # 如果是字符串，转换为列表
+                    if isinstance(content_list, str):
+                        content_list = [content_list]
+                    else:
+                        content_list = []
+                
+                if content_list:
+                    content_y = Inches(2)
+                    for i, item in enumerate(content_list):
+                        if i >= 6:  # 限制每页最多6条
+                            break
+                        
+                        item_text = str(item).strip()
+                        if not item_text:
+                            continue
+                            
+                        content_box = slide.shapes.add_textbox(
+                            Inches(1), content_y, Inches(8), Inches(0.8)
+                        )
+                        content_frame = content_box.text_frame
+                        content_frame.text = f"• {item_text}"
+                        content_para = content_frame.paragraphs[0]
+                        content_para.font.size = Pt(18)
+                        content_para.font.color.rgb = RGBColor(50, 50, 50)
+                        content_y += Inches(0.9)
+                else:
+                    # 如果没有内容，添加提示
                     content_box = slide.shapes.add_textbox(
-                        Inches(1), content_y, Inches(8), Inches(0.8)
+                        Inches(1), Inches(2), Inches(8), Inches(1)
                     )
                     content_frame = content_box.text_frame
-                    content_frame.text = f"• {item}"
+                    content_frame.text = "（此页暂无内容）"
                     content_para = content_frame.paragraphs[0]
-                    content_para.font.size = Pt(18)
-                    content_para.font.color.rgb = RGBColor(50, 50, 50)
-                    content_y += Inches(0.9)
+                    content_para.font.size = Pt(20)
+                    content_para.font.color.rgb = RGBColor(150, 150, 150)
+        
+        # 确保至少有一页
+        if len(prs.slides) == 0:
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            title_box = slide.shapes.add_textbox(
+                Inches(1), Inches(3), Inches(8), Inches(1.5)
+            )
+            title_frame = title_box.text_frame
+            title_frame.text = "教学课件"
+            title_para = title_frame.paragraphs[0]
+            title_para.font.size = Pt(44)
+            title_para.font.bold = True
         
         # 保存PPT
-        prs.save(output_path)
-        return output_path
+        try:
+            prs.save(output_path)
+            # 验证文件是否存在且大小大于0
+            if not os.path.exists(output_path):
+                raise Exception("PPT文件保存失败")
+            if os.path.getsize(output_path) == 0:
+                raise Exception("PPT文件为空")
+            return output_path
+        except Exception as e:
+            raise Exception(f"保存PPT文件失败: {str(e)}")
     
     def generate_word_document(
         self,

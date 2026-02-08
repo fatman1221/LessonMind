@@ -134,6 +134,29 @@ async def update_teaching_design(
     return design
 
 
+@router.delete("/{design_id}")
+async def delete_teaching_design(
+    design_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """删除教学设计"""
+    design = db.query(TeachingDesign)\
+        .filter(
+            TeachingDesign.id == design_id,
+            TeachingDesign.user_id == current_user.id
+        )\
+        .first()
+    
+    if not design:
+        raise HTTPException(status_code=404, detail="教学设计不存在")
+    
+    db.delete(design)
+    db.commit()
+    
+    return {"message": "删除成功"}
+
+
 @router.post("/{design_id}/export-word")
 async def export_to_word(
     design_id: int,

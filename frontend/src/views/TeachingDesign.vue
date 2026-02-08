@@ -80,38 +80,74 @@
     <!-- 查看/编辑对话框 -->
     <el-dialog
       v-model="showViewDialog"
-      :title="currentDesign?.topic"
+      :title="editingMode ? '编辑教学设计' : currentDesign?.topic"
       width="80%"
       top="5vh"
     >
       <div v-if="currentDesign" class="design-content">
+        <div class="edit-toolbar" v-if="!editingMode">
+          <el-button type="primary" @click="startEdit">
+            <el-icon><Edit /></el-icon>
+            编辑
+          </el-button>
+        </div>
         <el-tabs v-model="activeTab">
           <el-tab-pane label="导入环节" name="import">
             <div class="section-content">
-              <p><strong>时间：</strong>{{ currentDesign.content?.import?.time || 0 }}分钟</p>
+              <p><strong>时间：</strong>
+                <span v-if="!editingMode">{{ currentDesign.content?.import?.time || 0 }}分钟</span>
+                <el-input-number v-else v-model="editingContent.import.time" :min="0" :max="60" size="small" style="width: 120px" /> 分钟
+              </p>
               <p><strong>内容：</strong></p>
-              <div class="content-text">{{ currentDesign.content?.import?.content }}</div>
+              <div v-if="!editingMode" class="content-text">{{ currentDesign.content?.import?.content }}</div>
+              <el-input
+                v-else
+                v-model="editingContent.import.content"
+                type="textarea"
+                :rows="6"
+                placeholder="请输入导入环节内容"
+              />
             </div>
           </el-tab-pane>
           <el-tab-pane label="讲授环节" name="teaching">
             <div class="section-content">
-              <p><strong>时间：</strong>{{ currentDesign.content?.teaching?.time || 0 }}分钟</p>
+              <p><strong>时间：</strong>
+                <span v-if="!editingMode">{{ currentDesign.content?.teaching?.time || 0 }}分钟</span>
+                <el-input-number v-else v-model="editingContent.teaching.time" :min="0" :max="60" size="small" style="width: 120px" /> 分钟
+              </p>
               <p><strong>内容：</strong></p>
-              <div class="content-text">{{ currentDesign.content?.teaching?.content }}</div>
-              <p v-if="currentDesign.content?.teaching?.key_points" style="margin-top: 20px;">
+              <div v-if="!editingMode" class="content-text">{{ currentDesign.content?.teaching?.content }}</div>
+              <el-input
+                v-else
+                v-model="editingContent.teaching.content"
+                type="textarea"
+                :rows="8"
+                placeholder="请输入讲授环节内容"
+              />
+              <p v-if="currentDesign.content?.teaching?.key_points || editingMode" style="margin-top: 20px;">
                 <strong>重点知识点：</strong>
               </p>
-              <ul v-if="currentDesign.content?.teaching?.key_points">
+              <ul v-if="!editingMode && currentDesign.content?.teaching?.key_points">
                 <li v-for="(point, index) in currentDesign.content.teaching.key_points" :key="index">
                   {{ point }}
                 </li>
               </ul>
+              <el-input
+                v-else-if="editingMode"
+                v-model="editingContent.teaching.key_points_text"
+                type="textarea"
+                :rows="4"
+                placeholder="每行一个知识点"
+              />
             </div>
           </el-tab-pane>
           <el-tab-pane label="互动环节" name="interaction">
             <div class="section-content">
-              <p><strong>时间：</strong>{{ currentDesign.content?.interaction?.time || 0 }}分钟</p>
-              <div v-if="currentDesign.content?.interaction?.activities">
+              <p><strong>时间：</strong>
+                <span v-if="!editingMode">{{ currentDesign.content?.interaction?.time || 0 }}分钟</span>
+                <el-input-number v-else v-model="editingContent.interaction.time" :min="0" :max="60" size="small" style="width: 120px" /> 分钟
+              </p>
+              <div v-if="!editingMode && currentDesign.content?.interaction?.activities">
                 <div
                   v-for="(activity, index) in currentDesign.content.interaction.activities"
                   :key="index"
@@ -120,42 +156,77 @@
                   <p><strong>{{ activity.type }}：</strong>{{ activity.content }}（{{ activity.time }}分钟）</p>
                 </div>
               </div>
+              <el-input
+                v-else-if="editingMode"
+                v-model="editingContent.interaction.activities_text"
+                type="textarea"
+                :rows="6"
+                placeholder="请输入互动环节内容，每行一个活动"
+              />
             </div>
           </el-tab-pane>
           <el-tab-pane label="总结环节" name="summary">
             <div class="section-content">
-              <p><strong>时间：</strong>{{ currentDesign.content?.summary?.time || 0 }}分钟</p>
-              <div class="content-text">{{ currentDesign.content?.summary?.content }}</div>
+              <p><strong>时间：</strong>
+                <span v-if="!editingMode">{{ currentDesign.content?.summary?.time || 0 }}分钟</span>
+                <el-input-number v-else v-model="editingContent.summary.time" :min="0" :max="60" size="small" style="width: 120px" /> 分钟
+              </p>
+              <div v-if="!editingMode" class="content-text">{{ currentDesign.content?.summary?.content }}</div>
+              <el-input
+                v-else
+                v-model="editingContent.summary.content"
+                type="textarea"
+                :rows="6"
+                placeholder="请输入总结环节内容"
+              />
             </div>
           </el-tab-pane>
           <el-tab-pane label="预期成果" name="outcomes">
             <div class="section-content">
-              <div class="content-text">{{ currentDesign.content?.expected_outcomes }}</div>
+              <div v-if="!editingMode" class="content-text">{{ currentDesign.content?.expected_outcomes }}</div>
+              <el-input
+                v-else
+                v-model="editingContent.expected_outcomes"
+                type="textarea"
+                :rows="6"
+                placeholder="请输入预期成果"
+              />
             </div>
           </el-tab-pane>
         </el-tabs>
       </div>
       <template #footer>
-        <el-button @click="showViewDialog = false">关闭</el-button>
-        <el-button type="primary" @click="exportWord(currentDesign?.id)">导出Word</el-button>
+        <el-button @click="cancelEdit" v-if="editingMode">取消</el-button>
+        <el-button @click="showViewDialog = false" v-else>关闭</el-button>
+        <el-button type="primary" @click="saveEdit" v-if="editingMode" :loading="saving">保存</el-button>
+        <el-button type="primary" @click="exportWord(currentDesign?.id)" v-else>导出Word</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Edit } from '@element-plus/icons-vue'
 import { teachingApi } from '@/api/teaching'
 
 const designList = ref([])
 const loading = ref(false)
 const generating = ref(false)
+const saving = ref(false)
 const showGenerateDialog = ref(false)
 const showViewDialog = ref(false)
 const currentDesign = ref(null)
 const activeTab = ref('import')
+const editingMode = ref(false)
+const editingContent = reactive({
+  import: { time: 0, content: '' },
+  teaching: { time: 0, content: '', key_points_text: '' },
+  interaction: { time: 0, activities_text: '' },
+  summary: { time: 0, content: '' },
+  expected_outcomes: ''
+})
 
 const generateForm = ref({
   subject: '',
@@ -206,8 +277,85 @@ const viewDesign = async (design) => {
     currentDesign.value = await teachingApi.getDesign(design.id)
     showViewDialog.value = true
     activeTab.value = 'import'
+    editingMode.value = false
   } catch (error) {
     ElMessage.error('加载教学设计失败')
+  }
+}
+
+const startEdit = () => {
+  editingMode.value = true
+  // 初始化编辑内容
+  const content = currentDesign.value.content || {}
+  editingContent.import = {
+    time: content.import?.time || 5,
+    content: content.import?.content || ''
+  }
+  editingContent.teaching = {
+    time: content.teaching?.time || 25,
+    content: content.teaching?.content || '',
+    key_points_text: content.teaching?.key_points?.join('\n') || ''
+  }
+  editingContent.interaction = {
+    time: content.interaction?.time || 10,
+    activities_text: content.interaction?.activities?.map(a => `${a.type}：${a.content}（${a.time}分钟）`).join('\n') || ''
+  }
+  editingContent.summary = {
+    time: content.summary?.time || 5,
+    content: content.summary?.content || ''
+  }
+  editingContent.expected_outcomes = content.expected_outcomes || ''
+}
+
+const cancelEdit = () => {
+  editingMode.value = false
+}
+
+const saveEdit = async () => {
+  saving.value = true
+  try {
+    // 构建保存的内容
+    const content = {
+      import: {
+        title: "导入环节",
+        time: editingContent.import.time,
+        content: editingContent.import.content,
+        method: ""
+      },
+      teaching: {
+        title: "讲授环节",
+        time: editingContent.teaching.time,
+        content: editingContent.teaching.content,
+        key_points: editingContent.teaching.key_points_text.split('\n').filter(p => p.trim())
+      },
+      interaction: {
+        title: "互动环节",
+        time: editingContent.interaction.time,
+        activities: editingContent.interaction.activities_text.split('\n').filter(a => a.trim()).map((line, idx) => {
+          const match = line.match(/(.+?)：(.+?)（(\d+)分钟）/)
+          if (match) {
+            return { type: match[1], content: match[2], time: parseInt(match[3]) }
+          }
+          return { type: "活动", content: line, time: 3 }
+        })
+      },
+      summary: {
+        title: "总结环节",
+        time: editingContent.summary.time,
+        content: editingContent.summary.content
+      },
+      expected_outcomes: editingContent.expected_outcomes
+    }
+    
+    await teachingApi.updateDesign(currentDesign.value.id, content)
+    ElMessage.success('保存成功')
+    editingMode.value = false
+    // 重新加载数据
+    currentDesign.value = await teachingApi.getDesign(currentDesign.value.id)
+  } catch (error) {
+    ElMessage.error('保存失败：' + (error.response?.data?.detail || error.message))
+  } finally {
+    saving.value = false
   }
 }
 
@@ -242,11 +390,13 @@ const deleteDesign = async (id) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    // 这里应该调用删除API，暂时只提示
+    await teachingApi.deleteDesign(id)
     ElMessage.success('删除成功')
     loadDesigns()
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败：' + (error.response?.data?.detail || error.message))
+    }
   }
 }
 
@@ -299,6 +449,11 @@ onMounted(() => {
 .activity-item p {
   margin: 0;
   line-height: 1.6;
+}
+
+.edit-toolbar {
+  margin-bottom: 20px;
+  text-align: right;
 }
 
 ul {

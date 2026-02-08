@@ -17,6 +17,9 @@ export const teachingApi = {
     return api.post(`/teaching-design/${id}/export-word`, {}, {
       responseType: 'blob'
     })
+  },
+  deleteDesign(id) {
+    return api.delete(`/teaching-design/${id}`)
   }
 }
 

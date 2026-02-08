@@ -26,9 +26,19 @@ class QwenAIService:
             if response.status_code == 200:
                 return response.output.choices[0].message.content
             else:
-                return f"AI服务错误: {response.message}"
+                error_msg = response.message or "未知错误"
+                # 处理常见的API错误
+                if "Access denied" in error_msg or "overdue" in error_msg.lower():
+                    return "AI服务暂时不可用：账户状态异常，请检查阿里云账户是否欠费或API密钥是否有效。如需帮助，请访问：https://help.aliyun.com/zh/model-studio/error-code#overdue-payment"
+                elif "Invalid" in error_msg or "invalid" in error_msg.lower():
+                    return "AI服务错误：API密钥无效，请检查配置。"
+                else:
+                    return f"AI服务错误：{error_msg}"
         except Exception as e:
-            return f"AI服务异常: {str(e)}"
+            error_str = str(e)
+            if "Access denied" in error_str or "overdue" in error_str.lower():
+                return "AI服务暂时不可用：账户状态异常，请检查阿里云账户是否欠费或API密钥是否有效。如需帮助，请访问：https://help.aliyun.com/zh/model-studio/error-code#overdue-payment"
+            return f"AI服务异常: {error_str}"
     
     def generate_teaching_design(
         self,
@@ -178,18 +188,32 @@ class QwenAIService:
 要求：
 1. 题目类型包括：{', '.join(question_types)}
 2. 每道题目包含：题目内容、正确答案、解析
-3. 题目难度适中，符合教学要求
+3. **选择题必须包含4个选项（A、B、C、D），选项内容要完整明确**
+4. 填空题需要明确标注答案位置
+5. 简答题需要提供参考答案要点
+6. 题目难度适中，符合教学要求
 
 请以JSON数组格式返回，格式如下：
 [
     {{
         "type": "choice",
         "question": "题目内容",
-        "options": ["选项A", "选项B", "选项C", "选项D"],
+        "options": ["选项A的完整内容", "选项B的完整内容", "选项C的完整内容", "选项D的完整内容"],
         "answer": "A",
         "explanation": "解析说明"
     }},
-    ...
+    {{
+        "type": "fill",
+        "question": "题目内容，用____表示填空位置",
+        "answer": "正确答案",
+        "explanation": "解析说明"
+    }},
+    {{
+        "type": "short_answer",
+        "question": "题目内容",
+        "answer": "参考答案要点",
+        "explanation": "解析说明"
+    }}
 ]"""
         
         messages = [

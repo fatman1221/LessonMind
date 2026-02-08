@@ -183,3 +183,86 @@ async def get_all_ppts(
     
     return resources
 
+
+@router.get("/ppt/download/{resource_id}")
+async def download_ppt(
+    resource_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """下载PPT文件"""
+    from fastapi.responses import FileResponse
+    
+    # 获取资源
+    resource = db.query(MultimediaResource).filter(
+        MultimediaResource.id == resource_id,
+        MultimediaResource.resource_type == "ppt"
+    ).first()
+    
+    if not resource:
+        raise HTTPException(status_code=404, detail="PPT资源不存在")
+    
+    # 验证教学设计所有权
+    if resource.teaching_design_id:
+        design = db.query(TeachingDesign).filter(
+            TeachingDesign.id == resource.teaching_design_id,
+            TeachingDesign.user_id == current_user.id
+        ).first()
+        if not design:
+            raise HTTPException(status_code=403, detail="无权访问此资源")
+    
+    # 构建文件路径
+    file_path = os.path.join(settings.UPLOAD_DIR, resource.file_path.replace("/uploads/", ""))
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="PPT文件不存在")
+    
+    # 从路径中提取文件名
+    filename = os.path.basename(file_path)
+    
+    return FileResponse(
+        file_path,
+        media_type='application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        filename=filename
+    )
+
+
+@router.delete("/resources/{resource_id}")
+async def delete_resource(
+    resource_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """删除多媒体资源"""
+    # 获取资源
+    resource = db.query(MultimediaResource).filter(
+        MultimediaResource.id == resource_id
+    ).first()
+    
+    if not resource:
+        raise HTTPException(status_code=404, detail="资源不存在")
+    
+    # 验证教学设计所有权
+    if resource.teaching_design_id:
+        design = db.query(TeachingDesign).filter(
+            TeachingDesign.id == resource.teaching_design_id,
+            TeachingDesign.user_id == current_user.id
+        ).first()
+        if not design:
+            raise HTTPException(status_code=403, detail="无权删除此资源")
+    
+    # 删除文件
+    file_path = os.path.join(settings.UPLOAD_DIR, resource.file_path.replace("/uploads/", ""))
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception as e:
+            # 文件删除失败不影响数据库记录删除
+            pass
+    
+    # 删除数据库记录
+    db.delete(resource)
+    db.commit()
+    
+    return {"message": "删除成功"}
+

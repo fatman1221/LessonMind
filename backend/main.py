@@ -1,9 +1,10 @@
+# -*- coding: utf-8 -*-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 
-from api import chat, teaching_design, multimedia, analysis, auth
+from api import chat, teaching_design, multimedia, analysis, auth, user, admin, class_management, assignment
 from database import engine, Base
 from config import settings
 
@@ -40,6 +41,10 @@ app.include_router(chat.router, prefix="/api/chat", tags=["聊天对话"])
 app.include_router(teaching_design.router, prefix="/api/teaching-design", tags=["教学设计"])
 app.include_router(multimedia.router, prefix="/api/multimedia", tags=["多媒体资源"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["学情分析"])
+app.include_router(user.router, prefix="/api/user", tags=["用户管理"])
+app.include_router(admin.router, prefix="/api/admin", tags=["管理员"])
+app.include_router(class_management.router, prefix="/api", tags=["班级管理"])
+app.include_router(assignment.router, prefix="/api", tags=["作业管理"])
 
 
 @app.get("/")

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     REDIS_PASSWORD: Optional[str] = None
     
     # 通义千问API配置
-    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_API_KEY: str = "sk-40838326b1f240418cb8475371d435ee"
     
     # JWT配置
     SECRET_KEY: str = "your-secret-key-change-in-production"

@@ -330,6 +330,47 @@ async def export_questions_to_word(
     )
 
 
+@router.delete("/questions/{question_id}")
+async def delete_question(
+    question_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """删除题目"""
+    question = db.query(QuestionBank).filter(QuestionBank.id == question_id).first()
+    
+    if not question:
+        raise HTTPException(status_code=404, detail="题目不存在")
+    
+    db.delete(question)
+    db.commit()
+    
+    return {"message": "删除成功"}
+
+
+@router.post("/questions/delete-batch")
+async def delete_questions_batch(
+    question_ids: List[int],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """批量删除题目"""
+    if not question_ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的题目")
+    
+    questions = db.query(QuestionBank).filter(QuestionBank.id.in_(question_ids)).all()
+    
+    if not questions:
+        raise HTTPException(status_code=404, detail="未找到要删除的题目")
+    
+    for question in questions:
+        db.delete(question)
+    
+    db.commit()
+    
+    return {"message": f"成功删除 {len(questions)} 道题目"}
+
+
 def get_question_type_name(q_type: str) -> str:
     """获取题目类型名称"""
     type_map = {

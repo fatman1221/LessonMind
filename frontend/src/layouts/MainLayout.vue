@@ -14,30 +14,69 @@
           text-color="#333333"
           active-text-color="#409EFF"
         >
+          <!-- 通用菜单（所有角色可见） -->
           <el-menu-item index="/chat">
             <el-icon><ChatDotRound /></el-icon>
             <span>AI对话</span>
           </el-menu-item>
-          <el-menu-item index="/teaching-design">
-            <el-icon><Document /></el-icon>
-            <span>教学设计</span>
-          </el-menu-item>
-          <el-menu-item index="/multimedia">
-            <el-icon><Picture /></el-icon>
-            <span>多媒体资源</span>
-          </el-menu-item>
-          <el-menu-item index="/analysis">
-            <el-icon><DataAnalysis /></el-icon>
-            <span>学情分析</span>
-          </el-menu-item>
-          <el-menu-item index="/question-bank">
-            <el-icon><Collection /></el-icon>
-            <span>题库管理</span>
-          </el-menu-item>
-          <el-menu-item index="/ppt-management">
-            <el-icon><Files /></el-icon>
-            <span>PPT管理</span>
-          </el-menu-item>
+          
+          <!-- 教师和管理员专用菜单 -->
+          <template v-if="authStore.user?.role === 'teacher' || authStore.isAdmin">
+            <el-menu-item index="/teaching-design">
+              <el-icon><Document /></el-icon>
+              <span>教学设计</span>
+            </el-menu-item>
+            <el-menu-item index="/multimedia">
+              <el-icon><Picture /></el-icon>
+              <span>多媒体资源</span>
+            </el-menu-item>
+            <el-menu-item index="/analysis">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>学情分析</span>
+            </el-menu-item>
+            <el-menu-item index="/question-bank">
+              <el-icon><Collection /></el-icon>
+              <span>题库管理</span>
+            </el-menu-item>
+            <el-menu-item index="/ppt-management">
+              <el-icon><Files /></el-icon>
+              <span>PPT管理</span>
+            </el-menu-item>
+            <el-menu-item index="/user-management">
+              <el-icon><User /></el-icon>
+              <span>我的收藏</span>
+            </el-menu-item>
+          </template>
+          
+          <!-- 教师专用菜单 -->
+          <template v-if="authStore.user?.role === 'teacher'">
+            <el-divider />
+            <el-menu-item index="/class-management">
+              <el-icon><School /></el-icon>
+              <span>班级管理</span>
+            </el-menu-item>
+            <el-menu-item index="/assignment-management">
+              <el-icon><Document /></el-icon>
+              <span>作业管理</span>
+            </el-menu-item>
+          </template>
+          
+          <!-- 学生专用菜单 -->
+          <template v-if="authStore.user?.role === 'student'">
+            <el-menu-item index="/student-assignment">
+              <el-icon><EditPen /></el-icon>
+              <span>我的作业</span>
+            </el-menu-item>
+          </template>
+          
+          <!-- 管理员菜单 -->
+          <template v-if="authStore.isAdmin">
+            <el-divider />
+            <el-menu-item index="/admin/users">
+              <el-icon><Setting /></el-icon>
+              <span>用户管理</span>
+            </el-menu-item>
+          </template>
         </el-menu>
       </el-aside>
 
@@ -75,7 +114,8 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { ChatDotRound, Document, Picture, DataAnalysis, User, ArrowDown, Collection, Files } from '@element-plus/icons-vue'
+import { ChatDotRound, Document, Picture, DataAnalysis, User, ArrowDown, Collection, Files, Star, Setting, School, EditPen } from '@element-plus/icons-vue'
+import { ElDivider } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()

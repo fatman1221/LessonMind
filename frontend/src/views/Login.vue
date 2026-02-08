@@ -63,6 +63,12 @@
                 prefix-icon="Lock"
               />
             </el-form-item>
+            <el-form-item prop="role">
+              <el-select v-model="registerForm.role" placeholder="请选择角色" size="large" style="width: 100%">
+                <el-option label="教师" value="teacher" />
+                <el-option label="学生" value="student" />
+              </el-select>
+            </el-form-item>
             <el-form-item>
               <el-button
                 type="primary"
@@ -104,7 +110,8 @@ const loginForm = reactive({
 const registerForm = reactive({
   username: '',
   email: '',
-  password: ''
+  password: '',
+  role: 'teacher'
 })
 
 const loginRules = {
@@ -118,7 +125,8 @@ const registerRules = {
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
   ],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
+  role: [{ required: true, message: '请选择角色', trigger: 'change' }]
 }
 
 const handleLogin = async () => {
@@ -129,7 +137,9 @@ const handleLogin = async () => {
         const res = await authApi.login(loginForm.username, loginForm.password)
         // 确保获取到token
         if (res && res.access_token) {
-          authStore.setAuth(res.access_token, { username: loginForm.username })
+          // 保存完整的用户信息，包括角色
+          const userInfo = res.user || { username: loginForm.username, role: 'teacher' }
+          authStore.setAuth(res.access_token, userInfo)
           ElMessage.success('登录成功')
           // 延迟一下确保状态更新
           setTimeout(() => {

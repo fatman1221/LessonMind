@@ -55,7 +55,7 @@
         </el-table-column>
         <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="downloadPPT(row.file_path)">
+            <el-button link type="primary" @click="downloadPPT(row.id)">
               下载
             </el-button>
             <el-button link type="danger" @click="deletePPT(row.id)">删除</el-button>
@@ -166,19 +166,20 @@ const handleSelectionChange = (selection) => {
   selectedPPTs.value = selection
 }
 
-const downloadPPT = async (filePath) => {
+const downloadPPT = async (resourceId) => {
   try {
-    // 通过API下载文件
-    const response = await fetch(filePath)
-    const blob = await response.blob()
-    
-    // 从文件路径中提取文件名
-    const fileName = filePath.split('/').pop() || `PPT_${new Date().getTime()}.pptx`
+    const response = await multimediaApi.downloadPPT(resourceId)
     
     // 创建下载链接并直接下载
+    const blob = new Blob([response], {
+      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    })
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
+    
+    // 从响应头获取文件名，或使用默认名称
+    const fileName = `PPT_${resourceId}_${new Date().getTime()}.pptx`
     link.download = fileName
     link.style.display = 'none'
     document.body.appendChild(link)
@@ -188,7 +189,7 @@ const downloadPPT = async (filePath) => {
     
     ElMessage.success('下载成功')
   } catch (error) {
-    ElMessage.error('下载失败：' + (error.message || '未知错误'))
+    ElMessage.error('下载失败：' + (error.response?.data?.detail || error.message || '未知错误'))
   }
 }
 
@@ -199,7 +200,7 @@ const downloadSelected = async () => {
   }
 
   for (const ppt of selectedPPTs.value) {
-    await downloadPPT(ppt.file_path)
+    await downloadPPT(ppt.id)
     // 添加延迟避免浏览器阻止多个下载
     await new Promise(resolve => setTimeout(resolve, 300))
   }
@@ -214,11 +215,13 @@ const deletePPT = async (id) => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    // 这里应该调用删除API，暂时只提示
+    await multimediaApi.deletePPT(id)
     ElMessage.success('删除成功')
     loadPPTs()
-  } catch {
-    // 用户取消
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败：' + (error.response?.data?.detail || error.message))
+    }
   }
 }
 
