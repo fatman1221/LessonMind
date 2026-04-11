@@ -7,10 +7,11 @@ from datetime import datetime
 import os
 
 from database import get_db
-from models import User, StudentData, QuestionBank
+from models import User, StudentData, QuestionBank, AssignmentSubmission, Assignment
 from services.ai_service import ai_service
 from services.analysis_service import analysis_service
 from api.auth import get_current_user
+from api.assignment import grade_answers, _normalize_assignment_questions
 from config import settings
 
 router = APIRouter()
@@ -96,23 +97,41 @@ async def analyze_student(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """分析学生学情"""
+    """分析学生学情（优先使用导入的 StudentData；否则根据作业提交自动生成）"""
+    try:
+        sid = int(student_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="无效的学生ID")
+
+    student = db.query(User).filter(User.id == sid).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="学生用户不存在")
+    if student.role != "student":
+        raise HTTPException(status_code=400, detail="仅支持分析学生账号")
+
     student_data = db.query(StudentData).filter(StudentData.student_id == student_id).first()
-    
-    if not student_data:
-        raise HTTPException(status_code=404, detail="学生数据不存在")
-    
-    # 准备分析数据
-    analysis_data = {
-        "homework_scores": student_data.homework_scores,
-        "learning_behavior": student_data.learning_behavior,
-        "knowledge_mastery": student_data.knowledge_mastery
-    }
-    
-    # 执行分析
+
+    if student_data:
+        analysis_data = {
+            "homework_scores": student_data.homework_scores or {},
+            "learning_behavior": student_data.learning_behavior or {},
+            "knowledge_mastery": student_data.knowledge_mastery or {},
+        }
+        from_import = True
+    else:
+        analysis_data = _analysis_data_from_submissions(db, sid)
+        from_import = False
+
     result = analysis_service.analyze_student(analysis_data)
-    
-    return result
+
+    if not from_import and not analysis_data.get("homework_scores"):
+        extra = "该学生暂无作业提交记录，以下为基于默认规则的粗估；有作业数据后将自动结合得分与正确率分析。"
+        recs = list(result.get("recommendations") or [])
+        if extra not in recs:
+            recs.insert(0, extra)
+        result = {**result, "recommendations": recs}
+
+    return AnalysisResult(**result)
 
 
 @router.post("/train-model")
@@ -379,4 +398,61 @@ def get_question_type_name(q_type: str) -> str:
         "short_answer": "简答题"
     }
     return type_map.get(q_type, q_type)
+
+
+def _analysis_data_from_submissions(db: Session, student_db_id: int) -> Dict[str, Any]:
+    """
+    无「学生数据」导入记录时，根据作业提交记录构造分析输入。
+    homework_scores 使用 0–100 分制，与原有 StudentData 导入格式一致。
+    """
+    subs = (
+        db.query(AssignmentSubmission)
+        .filter(AssignmentSubmission.student_id == student_db_id)
+        .order_by(AssignmentSubmission.submitted_at.desc())
+        .all()
+    )
+    homework_scores: Dict[str, float] = {}
+    correct_total = 0
+    question_total = 0
+
+    for sub in subs:
+        assignment = (
+            db.query(Assignment).filter(Assignment.id == sub.assignment_id).first()
+        )
+        title = (assignment.title if assignment else f"作业{sub.assignment_id}")[:80]
+        if title in homework_scores:
+            title = f"{title}({sub.assignment_id})"
+        if sub.total_score and float(sub.total_score) > 0:
+            pct = float(sub.score or 0) / float(sub.total_score) * 100.0
+        else:
+            pct = 0.0
+        homework_scores[title] = round(pct, 1)
+
+        if assignment:
+            questions = _normalize_assignment_questions(assignment.questions)
+            if questions:
+                gr = grade_answers(questions, sub.answers or {})
+                correct_total += int(gr.get("correct_count", 0))
+                question_total += int(gr.get("total_questions", len(questions)))
+
+    n = len(subs)
+    learning_behavior = {
+        "study_time": min(n * 2, 20),
+        "question_count": max(n * 2, n),
+        "participation_rate": round(min(1.0, 0.35 + n * 0.12), 2) if n else 0.25,
+    }
+
+    knowledge_mastery: Dict[str, float] = {}
+    if question_total > 0:
+        knowledge_mastery["作业题目正确率"] = round(correct_total / question_total, 4)
+    elif homework_scores:
+        knowledge_mastery["作业得分率"] = round(
+            sum(homework_scores.values()) / len(homework_scores) / 100.0, 4
+        )
+
+    return {
+        "homework_scores": homework_scores,
+        "learning_behavior": learning_behavior,
+        "knowledge_mastery": knowledge_mastery,
+    }
 

@@ -5,6 +5,7 @@ from sqlalchemy import desc
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import json
 import re
 
 from database import get_db
@@ -46,6 +47,7 @@ class SubmissionResponse(BaseModel):
     id: int
     assignment_id: int
     student_id: int
+    student_username: Optional[str] = None
     answers: Dict[str, str]
     score: Optional[float]
     total_score: Optional[float]
@@ -57,8 +59,35 @@ class SubmissionResponse(BaseModel):
         from_attributes = True
 
 
+def _normalize_assignment_questions(raw: Any) -> List[Dict]:
+    """从作业记录中解析题目列表，兼容 JSON 字符串或异常数据。"""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return []
+    if not isinstance(raw, dict):
+        return []
+    qs = raw.get("questions", [])
+    return qs if isinstance(qs, list) else []
+
+
+def _normalize_answer_keys(answers: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """将提交的答案 key 统一为字符串，兼容数据库反序列化后的整型 key。"""
+    if not answers:
+        return {}
+    out: Dict[str, str] = {}
+    for k, v in answers.items():
+        s = v if isinstance(v, str) else str(v if v is not None else "")
+        out[str(k)] = s.strip()
+    return out
+
+
 def grade_answers(questions: List[Dict], answers: Dict[str, str]) -> Dict[str, Any]:
     """自动判题"""
+    answers = _normalize_answer_keys(answers)
     results = {}
     total_score = 0
     correct_count = 0
@@ -371,8 +400,7 @@ async def submit_assignment(
     if assignment.deadline and datetime.utcnow() > assignment.deadline:
         raise HTTPException(status_code=400, detail="作业已过期")
     
-    # 获取题目列表
-    questions = assignment.questions.get("questions", [])
+    questions = _normalize_assignment_questions(assignment.questions)
     
     # 自动判题
     grading_result = grade_answers(questions, submission_data.answers)
@@ -396,6 +424,7 @@ async def submit_assignment(
         id=submission.id,
         assignment_id=submission.assignment_id,
         student_id=submission.student_id,
+        student_username=None,
         answers=submission.answers,
         score=submission.score,
         total_score=submission.total_score,
@@ -411,14 +440,14 @@ async def get_submissions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取作业提交列表（仅教师）"""
-    if current_user.role != "teacher":
-        raise HTTPException(status_code=403, detail="只有教师可以查看提交情况")
+    """获取作业提交列表（教师或管理员）"""
+    if current_user.role not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="只有教师或管理员可以查看提交情况")
     
-    assignment = db.query(Assignment).filter(
-        Assignment.id == assignment_id,
-        Assignment.teacher_id == current_user.id
-    ).first()
+    q = db.query(Assignment).filter(Assignment.id == assignment_id)
+    if current_user.role == "teacher":
+        q = q.filter(Assignment.teacher_id == current_user.id)
+    assignment = q.first()
     
     if not assignment:
         raise HTTPException(status_code=404, detail="作业不存在")
@@ -427,17 +456,18 @@ async def get_submissions(
         AssignmentSubmission.assignment_id == assignment_id
     ).order_by(desc(AssignmentSubmission.submitted_at)).all()
     
+    questions = _normalize_assignment_questions(assignment.questions)
+    
     result = []
     for submission in submissions:
-        # 重新计算判题结果用于显示
-        questions = assignment.questions.get("questions", [])
-        grading_result = grade_answers(questions, submission.answers)
-        
+        grading_result = grade_answers(questions, submission.answers or {})
+        student = db.query(User).filter(User.id == submission.student_id).first()
         result.append(SubmissionResponse(
             id=submission.id,
             assignment_id=submission.assignment_id,
             student_id=submission.student_id,
-            answers=submission.answers,
+            student_username=student.username if student else None,
+            answers=submission.answers or {},
             score=submission.score,
             total_score=submission.total_score,
             is_graded=submission.is_graded,
@@ -467,13 +497,14 @@ async def get_my_submission(
         return None
     
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
-    questions = assignment.questions.get("questions", []) if assignment else []
-    grading_result = grade_answers(questions, submission.answers)
+    questions = _normalize_assignment_questions(assignment.questions) if assignment else []
+    grading_result = grade_answers(questions, submission.answers or {})
     
     return SubmissionResponse(
         id=submission.id,
         assignment_id=submission.assignment_id,
         student_id=submission.student_id,
+        student_username=None,
         answers=submission.answers,
         score=submission.score,
         total_score=submission.total_score,

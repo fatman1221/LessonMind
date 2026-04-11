@@ -165,8 +165,14 @@
       title="学生提交情况"
       width="900px"
     >
-      <el-table :data="submissionList" style="width: 100%">
-        <el-table-column prop="student_id" label="学生ID" width="100" />
+      <el-empty v-if="submissionList.length === 0" description="暂无学生提交" />
+      <el-table v-else :data="submissionList" style="width: 100%">
+        <el-table-column label="学生" min-width="140">
+          <template #default="{ row }">
+            {{ row.student_username || `学生 #${row.student_id}` }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="student_id" label="学生ID" width="90" />
         <el-table-column prop="score" label="得分" width="100">
           <template #default="{ row }">
             {{ row.score }} / {{ row.total_score }}
@@ -184,11 +190,75 @@
         </el-table-column>
       </el-table>
     </el-dialog>
+
+    <!-- 作业详情 -->
+    <el-dialog v-model="assignmentDetailVisible" title="作业详情" width="720px">
+      <template v-if="assignmentDetail">
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="标题">{{ assignmentDetail.title }}</el-descriptions-item>
+          <el-descriptions-item label="班级">{{ getClassName(assignmentDetail.class_id) }}</el-descriptions-item>
+          <el-descriptions-item label="状态">
+            <el-tag :type="assignmentDetail.is_published ? 'success' : 'warning'">
+              {{ assignmentDetail.is_published ? '已发布' : '未发布' }}
+            </el-tag>
+          </el-descriptions-item>
+          <el-descriptions-item label="截止时间">
+            {{ assignmentDetail.deadline ? formatTime(assignmentDetail.deadline) : '无' }}
+          </el-descriptions-item>
+          <el-descriptions-item label="描述">{{ assignmentDetail.description || '—' }}</el-descriptions-item>
+        </el-descriptions>
+        <h4 style="margin: 16px 0 8px">题目列表</h4>
+        <el-table :data="assignmentDetailQuestions" size="small" max-height="360">
+          <el-table-column prop="id" label="题号" width="70" />
+          <el-table-column label="类型" width="100">
+            <template #default="{ row }">
+              {{ getQuestionTypeName(row.type) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="question" label="题干" min-width="200" show-overflow-tooltip />
+        </el-table>
+      </template>
+      <template #footer>
+        <el-button type="primary" @click="assignmentDetailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 单次提交详情 -->
+    <el-dialog v-model="submissionDetailVisible" title="提交详情" width="640px">
+      <template v-if="currentSubmission">
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="学生">
+            {{ currentSubmission.student_username || `学生 #${currentSubmission.student_id}` }}
+          </el-descriptions-item>
+          <el-descriptions-item label="得分">
+            {{ currentSubmission.score }} / {{ currentSubmission.total_score }}
+          </el-descriptions-item>
+          <el-descriptions-item label="提交时间">
+            {{ formatTime(currentSubmission.submitted_at) }}
+          </el-descriptions-item>
+        </el-descriptions>
+        <el-table :data="submissionDetailRows" size="small" style="margin-top: 16px" max-height="400">
+          <el-table-column prop="qid" label="题号" width="80" />
+          <el-table-column prop="student_answer" label="学生答案" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="correct_answer" label="参考答案" min-width="120" show-overflow-tooltip />
+          <el-table-column label="结果" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.is_correct ? 'success' : 'danger'" size="small">
+                {{ row.is_correct ? '正确' : '错误' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </template>
+      <template #footer>
+        <el-button type="primary" @click="submissionDetailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import * as assignmentApi from '@/api/assignment'
@@ -209,6 +279,28 @@ const selectedQuestions = ref([])
 const tempSelectedQuestions = ref([])
 const currentAssignment = ref(null)
 const formRef = ref(null)
+const assignmentDetailVisible = ref(false)
+const assignmentDetail = ref(null)
+const submissionDetailVisible = ref(false)
+const currentSubmission = ref(null)
+
+const assignmentDetailQuestions = computed(() => {
+  const q = assignmentDetail.value?.questions
+  if (!q) return []
+  const list = q.questions ?? q
+  return Array.isArray(list) ? list : []
+})
+
+const submissionDetailRows = computed(() => {
+  const sub = currentSubmission.value
+  if (!sub?.results?.results) return []
+  return Object.entries(sub.results.results).map(([qid, r]) => ({
+    qid,
+    student_answer: r.student_answer ?? '—',
+    correct_answer: r.correct_answer ?? '—',
+    is_correct: !!r.is_correct
+  }))
+})
 
 const formData = reactive({
   class_id: null,
@@ -332,8 +424,13 @@ const publishAssignment = async (id) => {
   }
 }
 
-const viewAssignment = (assignment) => {
-  ElMessage.info('查看作业详情功能开发中')
+const viewAssignment = async (assignment) => {
+  try {
+    assignmentDetail.value = await assignmentApi.getAssignment(assignment.id)
+    assignmentDetailVisible.value = true
+  } catch (error) {
+    ElMessage.error('加载作业详情失败：' + (error.response?.data?.detail || error.message))
+  }
 }
 
 const viewSubmissions = async (assignment) => {
@@ -347,8 +444,8 @@ const viewSubmissions = async (assignment) => {
 }
 
 const viewSubmissionDetail = (submission) => {
-  // 可以显示详细的提交信息，包括每道题的答案和判题结果
-  ElMessage.info(`学生ID: ${submission.student_id}, 得分: ${submission.score}/${submission.total_score}`)
+  currentSubmission.value = submission
+  submissionDetailVisible.value = true
 }
 
 const formatTime = (time) => {

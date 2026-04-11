@@ -42,10 +42,6 @@
               <el-icon><Files /></el-icon>
               <span>PPT管理</span>
             </el-menu-item>
-            <el-menu-item index="/user-management">
-              <el-icon><User /></el-icon>
-              <span>我的收藏</span>
-            </el-menu-item>
           </template>
           
           <!-- 教师专用菜单 -->
@@ -114,7 +110,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { ChatDotRound, Document, Picture, DataAnalysis, User, ArrowDown, Collection, Files, Star, Setting, School, EditPen } from '@element-plus/icons-vue'
+import { ChatDotRound, Document, Picture, DataAnalysis, User, ArrowDown, Collection, Files, Setting, School, EditPen } from '@element-plus/icons-vue'
 import { ElDivider } from 'element-plus'
 
 const route = useRoute()

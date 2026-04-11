@@ -111,6 +111,23 @@
       </template>
     </el-dialog>
 
+    <!-- 班级详情 -->
+    <el-dialog v-model="classDetailVisible" title="班级详情" width="520px">
+      <template v-if="classDetail">
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="班级名称">{{ classDetail.name }}</el-descriptions-item>
+          <el-descriptions-item label="学科">{{ classDetail.subject || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="学段">{{ classDetail.grade || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="学生人数">{{ classDetail.student_count ?? 0 }}</el-descriptions-item>
+          <el-descriptions-item label="创建时间">{{ formatTime(classDetail.created_at) }}</el-descriptions-item>
+          <el-descriptions-item label="描述">{{ classDetail.description || '—' }}</el-descriptions-item>
+        </el-descriptions>
+      </template>
+      <template #footer>
+        <el-button type="primary" @click="classDetailVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 添加学生对话框 -->
     <el-dialog
       v-model="showAddStudentDialog"
@@ -164,6 +181,8 @@ const studentList = ref([])
 const availableStudents = ref([])
 const selectedStudents = ref([])
 const formRef = ref(null)
+const classDetailVisible = ref(false)
+const classDetail = ref(null)
 
 const formData = reactive({
   name: '',
@@ -274,9 +293,18 @@ const deleteClass = async (id) => {
   }
 }
 
-const viewClass = (cls) => {
-  // 可以跳转到班级详情页面
-  ElMessage.info('查看班级详情功能开发中')
+const viewClass = async (cls) => {
+  try {
+    classDetail.value = await classApi.getClass(cls.id)
+    classDetailVisible.value = true
+  } catch (error) {
+    ElMessage.error('加载班级详情失败：' + (error.response?.data?.detail || error.message))
+  }
+}
+
+const handleAddStudent = () => {
+  selectedStudents.value = []
+  showAddStudentDialog.value = true
 }
 
 const manageStudents = async (cls) => {
@@ -305,6 +333,8 @@ const addStudents = async () => {
     selectedStudents.value = []
     // 重新加载学生列表
     studentList.value = await classApi.getClassStudents(currentClass.value.id)
+    await loadAvailableStudents()
+    loadClasses()
   } catch (error) {
     ElMessage.error('添加失败：' + (error.response?.data?.detail || error.message))
   } finally {
@@ -322,6 +352,8 @@ const removeStudent = async (studentId) => {
     await classApi.removeStudent(currentClass.value.id, studentId)
     ElMessage.success('移除成功')
     studentList.value = await classApi.getClassStudents(currentClass.value.id)
+    await loadAvailableStudents()
+    loadClasses()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error('移除失败：' + (error.response?.data?.detail || error.message))

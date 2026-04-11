@@ -52,12 +52,6 @@ const routes = [
         meta: { title: 'PPT管理', requiresTeacher: true }
       },
       {
-        path: '/user-management',
-        name: 'UserManagement',
-        component: () => import('@/views/UserManagement.vue'),
-        meta: { title: '我的收藏', requiresTeacher: true }
-      },
-      {
         path: '/admin/users',
         name: 'AdminUserManagement',
         component: () => import('@/views/AdminUserManagement.vue'),
