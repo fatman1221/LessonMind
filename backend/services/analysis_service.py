@@ -11,6 +11,11 @@ class LearningAnalysisService:
     def __init__(self):
         self.model = DecisionTreeClassifier(max_depth=5, random_state=42)
         self.is_trained = False
+
+    @staticmethod
+    def _clamp01(value: float) -> float:
+        """将分值限制在 0~1 区间。"""
+        return float(max(0.0, min(1.0, value)))
     
     def prepare_features(self, student_data: Dict) -> np.ndarray:
         """准备特征数据"""
@@ -100,11 +105,13 @@ class LearningAnalysisService:
         ability_score = 0
         if homework_scores:
             scores = list(homework_scores.values())
-            ability_score += np.mean(scores) * 0.5
+            # 作业分数通常是 0~100，先归一化到 0~1
+            ability_score += (np.mean(scores) / 100.0) * 0.5
         
         if behavior:
             ability_score += behavior.get("participation_rate", 0) * 0.3
             ability_score += min(behavior.get("study_time", 0) / 10, 1) * 0.2
+        ability_score = self._clamp01(ability_score)
         
         # 学习习惯评估
         habit_score = 0
@@ -112,10 +119,11 @@ class LearningAnalysisService:
             habit_score += min(behavior.get("study_time", 0) / 20, 1) * 0.4
             habit_score += min(behavior.get("question_count", 0) / 10, 1) * 0.3
             habit_score += behavior.get("participation_rate", 0) * 0.3
+        habit_score = self._clamp01(habit_score)
         
         return {
             "mastery_level": mastery_level,
-            "mastery_score": float(avg_mastery),
+            "mastery_score": self._clamp01(float(avg_mastery)),
             "ability_score": float(ability_score),
             "habit_score": float(habit_score),
             "prediction_confidence": float(probabilities[prediction]),
@@ -149,11 +157,13 @@ class LearningAnalysisService:
         ability_score = 0
         if homework_scores:
             scores = list(homework_scores.values())
-            ability_score += np.mean(scores) * 0.5
+            # 作业分数通常是 0~100，先归一化到 0~1
+            ability_score += (np.mean(scores) / 100.0) * 0.5
         
         if behavior:
             ability_score += behavior.get("participation_rate", 0) * 0.3
             ability_score += min(behavior.get("study_time", 0) / 10, 1) * 0.2
+        ability_score = self._clamp01(ability_score)
         
         # 学习习惯评估
         habit_score = 0
@@ -161,10 +171,11 @@ class LearningAnalysisService:
             habit_score += min(behavior.get("study_time", 0) / 20, 1) * 0.4
             habit_score += min(behavior.get("question_count", 0) / 10, 1) * 0.3
             habit_score += behavior.get("participation_rate", 0) * 0.3
+        habit_score = self._clamp01(habit_score)
         
         return {
             "mastery_level": mastery_level,
-            "mastery_score": float(avg_mastery),
+            "mastery_score": self._clamp01(float(avg_mastery)),
             "ability_score": float(ability_score),
             "habit_score": float(habit_score),
             "prediction_confidence": 0.8,

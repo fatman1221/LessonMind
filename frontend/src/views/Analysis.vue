@@ -62,19 +62,19 @@
               </el-descriptions-item>
               <el-descriptions-item label="掌握度">
                 <el-progress
-                  :percentage="Math.round(analysisResult.mastery_score * 100)"
+                  :percentage="toPercent(analysisResult.mastery_score)"
                   :color="getProgressColor(analysisResult.mastery_score)"
                 />
               </el-descriptions-item>
               <el-descriptions-item label="学习能力">
                 <el-progress
-                  :percentage="Math.round(analysisResult.ability_score * 100)"
+                  :percentage="toPercent(analysisResult.ability_score)"
                   :color="getProgressColor(analysisResult.ability_score)"
                 />
               </el-descriptions-item>
               <el-descriptions-item label="学习习惯">
                 <el-progress
-                  :percentage="Math.round(analysisResult.habit_score * 100)"
+                  :percentage="toPercent(analysisResult.habit_score)"
                   :color="getProgressColor(analysisResult.habit_score)"
                 />
               </el-descriptions-item>
@@ -214,6 +214,11 @@ const getProgressColor = (score) => {
   if (score >= 0.8) return '#67c23a'
   if (score >= 0.6) return '#e6a23c'
   return '#f56c6c'
+}
+
+const toPercent = (score) => {
+  const n = Number(score || 0)
+  return Math.max(0, Math.min(100, Math.round(n * 100)))
 }
 </script>
 
