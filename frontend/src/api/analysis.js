@@ -10,6 +10,27 @@ export const analysisApi = {
   trainModel() {
     return api.post('/analysis/train-model')
   },
+  getClassOverview() {
+    return api.get('/analysis/class-overview')
+  },
+  getTeachingReport() {
+    return api.get('/analysis/teaching-report')
+  },
+  getStudentRecommendations(studentId) {
+    return api.get(`/analysis/student-recommendations/${studentId}`)
+  },
+  getTeachingAlerts() {
+    return api.get('/analysis/teaching-alerts')
+  },
+  getIgnoredTeachingAlerts() {
+    return api.get('/analysis/teaching-alerts/ignored')
+  },
+  updateTeachingAlertState(alertKey, ignored = true) {
+    return api.post('/analysis/teaching-alerts/state', { alert_key: alertKey, ignored })
+  },
+  clearIgnoredTeachingAlerts() {
+    return api.delete('/analysis/teaching-alerts/ignored')
+  },
   generateQuestions(data) {
     return api.post('/analysis/questions/generate', data)
   },

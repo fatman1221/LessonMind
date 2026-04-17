@@ -21,7 +21,7 @@ class UserCreate(BaseModel):
     username: str
     email: str
     password: str
-    role: Optional[str] = "teacher"  # teacher, student, admin (注册时只能选teacher或student)
+    role: Optional[str] = "teacher"  # teacher, student, admin
 
 
 class UserResponse(BaseModel):
@@ -98,9 +98,9 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == user_data.email).first():
         raise HTTPException(status_code=400, detail="邮箱已存在")
     
-    # 验证角色（注册时只能选择teacher或student，不能注册admin）
-    if user_data.role and user_data.role not in ["teacher", "student"]:
-        raise HTTPException(status_code=400, detail="注册时只能选择教师或学生角色")
+    # 验证角色
+    if user_data.role and user_data.role not in ["teacher", "student", "admin"]:
+        raise HTTPException(status_code=400, detail="无效角色，支持 teacher/student/admin")
     
     # 创建新用户
     hashed_password = get_password_hash(user_data.password)

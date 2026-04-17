@@ -67,6 +67,7 @@
               <el-select v-model="registerForm.role" placeholder="请选择角色" size="large" style="width: 100%">
                 <el-option label="教师" value="teacher" />
                 <el-option label="学生" value="student" />
+                <el-option label="系统管理员" value="admin" />
               </el-select>
             </el-form-item>
             <el-form-item>

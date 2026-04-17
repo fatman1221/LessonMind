@@ -6,6 +6,14 @@
           <span>多媒体资源生成</span>
         </div>
       </template>
+      <el-alert
+        v-if="designList.length === 0"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px"
+        title="当前暂无教学设计，请先在“教学设计”页面创建后再生成图片/PPT。"
+      />
 
       <el-tabs v-model="activeTab">
         <!-- 图片生成 -->
@@ -38,7 +46,7 @@
               />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" :loading="generatingImage" @click="generateImage">
+              <el-button type="primary" :loading="generatingImage" :disabled="designList.length === 0" @click="generateImage">
                 生成图片
               </el-button>
             </el-form-item>
@@ -60,6 +68,9 @@
                       <p>图片资源</p>
                     </div>
                     <p class="resource-desc">{{ resource.description }}</p>
+                    <el-button size="small" type="primary" plain @click="previewImage(resource.file_path)">
+                      在线预览
+                    </el-button>
                     <el-button size="small" @click="downloadResource(resource.file_path)">
                       下载
                     </el-button>
@@ -95,7 +106,7 @@
               </el-select>
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" :loading="generatingPPT" @click="generatePPT">
+              <el-button type="primary" :loading="generatingPPT" :disabled="designList.length === 0" @click="generatePPT">
                 生成PPT
               </el-button>
             </el-form-item>
@@ -127,6 +138,16 @@
           </div>
         </el-tab-pane>
       </el-tabs>
+
+      <el-dialog v-model="imagePreviewVisible" title="图片在线预览" width="70%">
+        <div class="image-preview-wrap" v-if="previewImageUrl">
+          <img :src="previewImageUrl" alt="预览图片" class="preview-image" />
+        </div>
+        <template #footer>
+          <el-button @click="imagePreviewVisible = false">关闭</el-button>
+          <el-button type="primary" @click="downloadResource(previewRawPath)">下载原图</el-button>
+        </template>
+      </el-dialog>
     </el-card>
   </div>
 </template>
@@ -144,6 +165,9 @@ const imageResources = ref([])
 const pptResources = ref([])
 const generatingImage = ref(false)
 const generatingPPT = ref(false)
+const imagePreviewVisible = ref(false)
+const previewImageUrl = ref('')
+const previewRawPath = ref('')
 
 const imageForm = ref({
   teaching_design_id: null,
@@ -176,6 +200,10 @@ const loadDesignDetails = async () => {
 }
 
 const generateImage = async () => {
+  if (!imageForm.value.teaching_design_id) {
+    ElMessage.warning('请先选择教学设计')
+    return
+  }
   if (!imageForm.value.knowledge_point || !imageForm.value.subject) {
     ElMessage.warning('请填写知识点和学科')
     return
@@ -189,9 +217,7 @@ const generateImage = async () => {
       teaching_design_id: imageForm.value.teaching_design_id
     })
     ElMessage.success('图片生成成功')
-    if (imageForm.value.teaching_design_id) {
-      loadResources(imageForm.value.teaching_design_id)
-    }
+    loadResources(imageForm.value.teaching_design_id)
   } catch (error) {
     ElMessage.error('生成图片失败：' + (error.response?.data?.detail || error.message))
   } finally {
@@ -230,30 +256,68 @@ const loadResources = async (designId) => {
   }
 }
 
+const resolveResourceUrl = (filePath) => {
+  if (!filePath) return ''
+  if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+    return filePath
+  }
+  // 静态资源由后端 8000 端口提供
+  const host = window.location.hostname || '127.0.0.1'
+  return `${window.location.protocol}//${host}:8000${filePath}`
+}
+
 const downloadResource = async (filePath) => {
   try {
-    // 通过API下载文件
-    const response = await fetch(filePath)
+    const resourceUrl = resolveResourceUrl(filePath)
+    if (!resourceUrl) {
+      ElMessage.error('资源地址无效')
+      return
+    }
+
+    const response = await fetch(resourceUrl)
+    if (!response.ok) {
+      throw new Error(`下载失败，状态码 ${response.status}`)
+    }
+
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('text/html')) {
+      throw new Error('返回内容不是文件，可能是资源地址错误')
+    }
+
     const blob = await response.blob()
+    if (!blob || blob.size === 0) {
+      throw new Error('文件为空')
+    }
     
     // 从文件路径中提取文件名
     const fileName = filePath.split('/').pop() || `资源_${new Date().getTime()}`
     
     // 创建下载链接并直接下载
-    const url = window.URL.createObjectURL(blob)
+    const objectUrl = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.href = url
+    link.href = objectUrl
     link.download = fileName
     link.style.display = 'none'
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    window.URL.revokeObjectURL(url)
+    window.URL.revokeObjectURL(objectUrl)
     
     ElMessage.success('下载成功')
   } catch (error) {
     ElMessage.error('下载失败：' + (error.message || '未知错误'))
   }
+}
+
+const previewImage = (filePath) => {
+  const url = resolveResourceUrl(filePath)
+  if (!url) {
+    ElMessage.error('预览地址无效')
+    return
+  }
+  previewRawPath.value = filePath
+  previewImageUrl.value = url
+  imagePreviewVisible.value = true
 }
 
 onMounted(() => {
@@ -314,6 +378,24 @@ onMounted(() => {
   font-size: 12px;
   color: #909399;
   min-height: 40px;
+}
+
+.image-preview-wrap {
+  min-height: 400px;
+  max-height: 70vh;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  background: #f5f7fa;
+  padding: 12px;
+}
+
+.preview-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
 }
 </style>
 

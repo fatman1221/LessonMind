@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Text, DateTime, Float, Boolean, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -193,4 +193,19 @@ class AssignmentSubmission(Base):
     # 关系
     assignment = relationship("Assignment", back_populates="submissions")
     student = relationship("User", back_populates="submissions")
+
+
+class AlertPreference(Base):
+    """提醒偏好（忽略状态）"""
+    __tablename__ = "alert_preferences"
+    __table_args__ = (
+        UniqueConstraint("user_id", "alert_key", name="uq_alert_pref_user_key"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    alert_key = Column(String(120), nullable=False, index=True)
+    is_ignored = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

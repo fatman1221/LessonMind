@@ -23,7 +23,7 @@
         <el-statistic title="活跃用户" :value="stats.active_users" />
         <el-statistic title="教师" :value="stats.teacher_count" />
         <el-statistic title="学生" :value="stats.student_count || 0" />
-        <el-statistic title="管理员" :value="stats.admin_count" />
+        <el-statistic title="系统管理员" :value="stats.admin_count" />
       </div>
 
       <!-- 用户列表 -->
@@ -120,7 +120,7 @@
           <el-select v-model="formData.role" placeholder="请选择角色" style="width: 100%">
             <el-option label="教师" value="teacher" />
             <el-option label="学生" value="student" />
-            <el-option label="管理员" value="admin" />
+            <el-option label="系统管理员" value="admin" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态" prop="is_active">
@@ -297,7 +297,7 @@ const handleSubmit = async () => {
 
 const getRoleName = (role) => {
   const roleMap = {
-    'admin': '管理员',
+    'admin': '系统管理员',
     'teacher': '教师',
     'student': '学生'
   }

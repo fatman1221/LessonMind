@@ -36,6 +36,39 @@ class TeachingDesignResponse(BaseModel):
         from_attributes = True
 
 
+def _fallback_teaching_design(subject: str, grade: str, topic: str, objectives: str) -> Dict[str, Any]:
+    """AI不可用时的教学设计兜底模板。"""
+    return {
+        "import": {
+            "title": "导入环节",
+            "time": 5,
+            "content": f"通过与“{topic}”相关的生活情境问题导入，激发{grade}学生兴趣。",
+            "method": "情境导入+提问",
+        },
+        "teaching": {
+            "title": "讲授环节",
+            "time": 25,
+            "content": f"围绕{topic}进行概念讲解、示例演示与板书推导。",
+            "key_points": [f"{topic}核心概念", "易错点辨析", "典型例题"],
+        },
+        "interaction": {
+            "title": "互动环节",
+            "time": 10,
+            "activities": [
+                {"type": "提问", "content": "课堂快问快答检查理解", "time": 3},
+                {"type": "讨论", "content": "分组讨论解题思路", "time": 4},
+                {"type": "活动", "content": "当堂小练习与互评", "time": 3},
+            ],
+        },
+        "summary": {
+            "title": "总结环节",
+            "time": 5,
+            "content": "回顾本节知识结构并布置分层作业。",
+        },
+        "expected_outcomes": objectives or f"学生能够掌握{topic}的基础知识并能独立完成对应练习。",
+    }
+
+
 @router.post("/generate", response_model=TeachingDesignResponse)
 async def generate_teaching_design(
     design_data: TeachingDesignCreate,
@@ -44,13 +77,19 @@ async def generate_teaching_design(
 ):
     """生成教学设计"""
     try:
-        # 调用AI服务生成教学设计
         content = ai_service.generate_teaching_design(
             subject=design_data.subject,
             grade=design_data.grade,
             topic=design_data.topic,
             objectives=design_data.teaching_objectives
         )
+        if not isinstance(content, dict) or "import" not in content:
+            content = _fallback_teaching_design(
+                design_data.subject,
+                design_data.grade,
+                design_data.topic,
+                design_data.teaching_objectives,
+            )
         
         # 保存到数据库
         teaching_design = TeachingDesign(

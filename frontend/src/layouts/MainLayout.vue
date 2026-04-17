@@ -34,6 +34,10 @@
               <el-icon><DataAnalysis /></el-icon>
               <span>学情分析</span>
             </el-menu-item>
+            <el-menu-item index="/teacher-report">
+              <el-icon><DataAnalysis /></el-icon>
+              <span>备课报告</span>
+            </el-menu-item>
             <el-menu-item index="/question-bank">
               <el-icon><Collection /></el-icon>
               <span>题库管理</span>

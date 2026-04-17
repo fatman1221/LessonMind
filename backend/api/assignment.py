@@ -52,6 +52,7 @@ class SubmissionResponse(BaseModel):
     score: Optional[float]
     total_score: Optional[float]
     is_graded: bool
+    is_late: Optional[bool] = False
     submitted_at: datetime
     results: Optional[Dict[str, Any]] = None  # 每道题的判题结果
     
@@ -157,6 +158,11 @@ async def create_assignment(
     
     if not cls:
         raise HTTPException(status_code=404, detail="班级不存在")
+
+    if assignment_data.deadline:
+        # 截止时间不能早于今天（允许今天和未来）
+        if assignment_data.deadline.date() < datetime.now().date():
+            raise HTTPException(status_code=400, detail="截止时间不能早于今天")
     
     # 获取题目详情
     questions = []
@@ -396,10 +402,6 @@ async def submit_assignment(
     if existing:
         raise HTTPException(status_code=400, detail="您已经提交过此作业")
     
-    # 检查截止时间
-    if assignment.deadline and datetime.utcnow() > assignment.deadline:
-        raise HTTPException(status_code=400, detail="作业已过期")
-    
     questions = _normalize_assignment_questions(assignment.questions)
     
     # 自动判题
@@ -419,6 +421,7 @@ async def submit_assignment(
     db.add(submission)
     db.commit()
     db.refresh(submission)
+    is_late = bool(assignment.deadline and submission.submitted_at and submission.submitted_at > assignment.deadline)
     
     return SubmissionResponse(
         id=submission.id,
@@ -429,6 +432,7 @@ async def submit_assignment(
         score=submission.score,
         total_score=submission.total_score,
         is_graded=submission.is_graded,
+        is_late=is_late,
         submitted_at=submission.submitted_at,
         results=grading_result
     )
@@ -462,6 +466,7 @@ async def get_submissions(
     for submission in submissions:
         grading_result = grade_answers(questions, submission.answers or {})
         student = db.query(User).filter(User.id == submission.student_id).first()
+        is_late = bool(assignment.deadline and submission.submitted_at and submission.submitted_at > assignment.deadline)
         result.append(SubmissionResponse(
             id=submission.id,
             assignment_id=submission.assignment_id,
@@ -471,6 +476,7 @@ async def get_submissions(
             score=submission.score,
             total_score=submission.total_score,
             is_graded=submission.is_graded,
+            is_late=is_late,
             submitted_at=submission.submitted_at,
             results=grading_result
         ))
@@ -499,6 +505,9 @@ async def get_my_submission(
     assignment = db.query(Assignment).filter(Assignment.id == assignment_id).first()
     questions = _normalize_assignment_questions(assignment.questions) if assignment else []
     grading_result = grade_answers(questions, submission.answers or {})
+    is_late = bool(
+        assignment and assignment.deadline and submission.submitted_at and submission.submitted_at > assignment.deadline
+    )
     
     return SubmissionResponse(
         id=submission.id,
@@ -509,6 +518,7 @@ async def get_my_submission(
         score=submission.score,
         total_score=submission.total_score,
         is_graded=submission.is_graded,
+        is_late=is_late,
         submitted_at=submission.submitted_at,
         results=grading_result
     )

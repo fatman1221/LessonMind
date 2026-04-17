@@ -3,11 +3,22 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
+from urllib.parse import quote
 
 from database import get_db
-from models import User, StudentData, QuestionBank, AssignmentSubmission, Assignment
+from models import (
+    User,
+    StudentData,
+    QuestionBank,
+    AssignmentSubmission,
+    Assignment,
+    Class,
+    ClassStudent,
+    ChatHistory,
+    AlertPreference,
+)
 from services.ai_service import ai_service
 from services.analysis_service import analysis_service
 from api.auth import get_current_user
@@ -63,6 +74,62 @@ class QuestionBankItem(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class ClassAssignmentOverviewItem(BaseModel):
+    class_id: int
+    class_name: str
+    student_count: int
+    assignment_count: int
+    submission_count: int
+    completion_rate: float
+    avg_score_pct: float
+
+
+class TeachingReportResponse(BaseModel):
+    teacher_id: int
+    classes: List[ClassAssignmentOverviewItem]
+    student_score_overview: Dict[str, float]
+    usage_frequency: Dict[str, Any]
+    preference_tags: List[str]
+    prep_recommendations: List[str]
+
+
+class StudentRecommendationItem(BaseModel):
+    question_id: int
+    question_type: str
+    question_content: str
+    reason: str
+
+
+class StudentVideoRecommendationItem(BaseModel):
+    title: str
+    url: str
+    reason: str
+
+
+class StudentRecommendationResponse(BaseModel):
+    student_id: int
+    signals: Dict[str, Any]
+    recommended_questions: List[StudentRecommendationItem]
+    recommended_videos: List[StudentVideoRecommendationItem]
+
+
+class TeachingAlertItem(BaseModel):
+    level: str  # high / medium / low
+    category: str  # deadline / class_completion / student_risk
+    title: str
+    detail: str
+    action_hint: str
+    alert_key: str
+    class_id: Optional[int] = None
+    assignment_id: Optional[int] = None
+    student_id: Optional[int] = None
+
+
+class AlertStateUpdateRequest(BaseModel):
+    alert_key: str
+    ignored: bool = True
 
 
 @router.post("/student-data")
@@ -123,13 +190,22 @@ async def analyze_student(
         from_import = False
 
     result = analysis_service.analyze_student(analysis_data)
+    signals = _student_dynamic_signals(db, sid)
+    recs = list(result.get("recommendations") or [])
 
     if not from_import and not analysis_data.get("homework_scores"):
-        extra = "该学生暂无作业提交记录，以下为基于默认规则的粗估；有作业数据后将自动结合得分与正确率分析。"
-        recs = list(result.get("recommendations") or [])
+        extra = "该学生暂无作业记录，建议自动推送诊断测试与对应教学视频，并在24小时后复测。"
         if extra not in recs:
             recs.insert(0, extra)
-        result = {**result, "recommendations": recs}
+    elif signals["completion_rate"] < 0.6:
+        recs.append("作业完成率偏低，建议安排分层作业并设置阶段提醒。")
+
+    if signals["chat_frequency_7d"] < 2:
+        recs.append("近7天学习互动频次较低，建议在课堂中增加问答与同伴讨论环节。")
+    if signals["covered_topics"] < 3:
+        recs.append("章节学习覆盖面较窄，建议补充跨章节综合练习与复盘。")
+
+    result = {**result, "recommendations": list(dict.fromkeys(recs))}
 
     return AnalysisResult(**result)
 
@@ -165,6 +241,286 @@ async def train_analysis_model(
         return {"message": "模型训练成功", "training_samples": len(training_data)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"模型训练失败: {str(e)}")
+
+
+@router.get("/class-overview", response_model=List[ClassAssignmentOverviewItem])
+async def get_class_assignment_overview(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """班级与作业关联概览，便于教师分析。"""
+    if current_user.role not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可访问")
+
+    class_query = db.query(Class)
+    if current_user.role == "teacher":
+        class_query = class_query.filter(Class.teacher_id == current_user.id)
+    classes = class_query.order_by(Class.created_at.desc()).all()
+
+    result: List[ClassAssignmentOverviewItem] = []
+    for cls in classes:
+        student_count = db.query(ClassStudent).filter(ClassStudent.class_id == cls.id).count()
+        assignments = db.query(Assignment).filter(Assignment.class_id == cls.id).all()
+        assignment_ids = [a.id for a in assignments]
+        assignment_count = len(assignment_ids)
+        if assignment_ids:
+            submissions = db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id.in_(assignment_ids)).all()
+        else:
+            submissions = []
+        submission_count = len(submissions)
+
+        expected = max(student_count * assignment_count, 1)
+        completion_rate = submission_count / expected if expected else 0.0
+        score_pcts: List[float] = []
+        for s in submissions:
+            if s.total_score and float(s.total_score) > 0:
+                score_pcts.append(float(s.score or 0) / float(s.total_score))
+        avg_score_pct = float(sum(score_pcts) / len(score_pcts) * 100.0) if score_pcts else 0.0
+
+        result.append(ClassAssignmentOverviewItem(
+            class_id=cls.id,
+            class_name=cls.name,
+            student_count=student_count,
+            assignment_count=assignment_count,
+            submission_count=submission_count,
+            completion_rate=round(completion_rate, 4),
+            avg_score_pct=round(avg_score_pct, 2),
+        ))
+
+    return result
+
+
+@router.get("/teaching-report", response_model=TeachingReportResponse)
+async def get_teaching_report(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """教师备课报告：成绩、使用频率、偏好与建议。"""
+    if current_user.role not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可访问")
+
+    teacher_id = current_user.id
+    report = _build_teacher_report(db, teacher_id)
+    return TeachingReportResponse(**report)
+
+
+@router.get("/student-recommendations/{student_id}", response_model=StudentRecommendationResponse)
+async def get_student_recommendations(
+    student_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """根据学生动态监测结果自动推送测试题和教学视频建议。"""
+    if current_user.role not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可访问")
+
+    student = db.query(User).filter(User.id == student_id).first()
+    if not student or student.role != "student":
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    # 教师仅可查看自己班级中的学生
+    if current_user.role == "teacher":
+        owns = db.query(ClassStudent).join(Class, Class.id == ClassStudent.class_id).filter(
+            ClassStudent.student_id == student_id,
+            Class.teacher_id == current_user.id
+        ).first()
+        if not owns:
+            raise HTTPException(status_code=403, detail="无权查看该学生")
+
+    signals = _student_dynamic_signals(db, student_id)
+    profile = _infer_student_profile(db, student_id)
+    subject = profile.get("subject")
+
+    query = db.query(QuestionBank)
+    if subject:
+        query = query.filter(QuestionBank.subject == subject)
+    question_rows = query.order_by(QuestionBank.created_at.desc()).limit(6).all()
+
+    reason = "用于巩固薄弱知识点与提升作业完成质量"
+    if signals.get("completion_rate", 0) < 0.6:
+        reason = "该生作业完成率偏低，建议先做短小练习建立节奏"
+
+    recommended_questions = [
+        StudentRecommendationItem(
+            question_id=q.id,
+            question_type=q.question_type,
+            question_content=q.question_content[:120],
+            reason=reason,
+        )
+        for q in question_rows
+    ]
+
+    video_topics = [
+        f"{subject or '通用'} 基础概念精讲",
+        f"{subject or '通用'} 典型题讲解",
+        f"{subject or '通用'} 易错点复盘",
+    ]
+    if signals.get("chat_frequency_7d", 0) < 2:
+        video_topics.append(f"{subject or '通用'} 高效学习方法")
+
+    recommended_videos = [
+        StudentVideoRecommendationItem(
+            title=t,
+            url=f"https://www.bilibili.com/search?keyword={quote(t)}",
+            reason="建议课后观看并完成配套练习",
+        )
+        for t in video_topics
+    ]
+
+    return StudentRecommendationResponse(
+        student_id=student_id,
+        signals=signals,
+        recommended_questions=recommended_questions,
+        recommended_videos=recommended_videos,
+    )
+
+
+@router.get("/teaching-alerts", response_model=List[TeachingAlertItem])
+async def get_teaching_alerts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """教师提醒中心：截止提醒、班级完成率预警、重点关注学生。"""
+    if current_user.role not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可访问")
+
+    if current_user.role == "teacher":
+        classes = db.query(Class).filter(Class.teacher_id == current_user.id).all()
+        assignments = db.query(Assignment).filter(Assignment.teacher_id == current_user.id).all()
+    else:
+        classes = db.query(Class).all()
+        assignments = db.query(Assignment).all()
+
+    now = datetime.utcnow()
+    alerts: List[TeachingAlertItem] = []
+
+    # 1) 即将截止提醒（24小时内）
+    for a in assignments:
+        if not a.is_published or not a.deadline:
+            continue
+        delta = (a.deadline - now).total_seconds()
+        if 0 < delta <= 24 * 3600:
+            alerts.append(TeachingAlertItem(
+                level="high",
+                category="deadline",
+                title=f"作业《{a.title}》即将截止",
+                detail=f"距离截止约 {int(delta // 3600)} 小时，建议立即提醒学生完成提交。",
+                action_hint="可在班级群发送截止提醒，并开启补交策略。",
+                alert_key=f"deadline-{a.id}",
+                class_id=a.class_id,
+                assignment_id=a.id,
+            ))
+
+    # 2) 班级完成率预警
+    for cls in classes:
+        members = db.query(ClassStudent).filter(ClassStudent.class_id == cls.id).all()
+        student_ids = [m.student_id for m in members]
+        class_assignments = [a for a in assignments if a.class_id == cls.id]
+        assign_ids = [a.id for a in class_assignments]
+        submissions = db.query(AssignmentSubmission).filter(
+            AssignmentSubmission.assignment_id.in_(assign_ids)
+        ).all() if assign_ids else []
+        expected = max(len(student_ids) * len(class_assignments), 1)
+        completion_rate = (len(submissions) / expected) if expected else 0.0
+        if len(class_assignments) > 0 and completion_rate < 0.6:
+            alerts.append(TeachingAlertItem(
+                level="medium",
+                category="class_completion",
+                title=f"{cls.name} 作业完成率偏低",
+                detail=f"当前完成率约 {round(completion_rate * 100)}%，建议进行分层督导。",
+                action_hint="优先跟进未提交学生，分配短任务提升完成度。",
+                alert_key=f"class-completion-{cls.id}",
+                class_id=cls.id,
+            ))
+
+    # 3) 重点关注学生（按完成率）
+    class_ids = [c.id for c in classes]
+    student_rows = db.query(ClassStudent).filter(ClassStudent.class_id.in_(class_ids)).all() if class_ids else []
+    student_ids = sorted({s.student_id for s in student_rows})
+    for sid in student_ids[:80]:  # 限制范围，避免开销过大
+        signals = _student_dynamic_signals(db, sid)
+        if signals.get("completion_rate", 0) < 0.5:
+            stu = db.query(User).filter(User.id == sid).first()
+            if not stu:
+                continue
+            alerts.append(TeachingAlertItem(
+                level="medium",
+                category="student_risk",
+                title=f"学生 {stu.username} 需要重点关注",
+                detail=f"作业完成率 {round(signals.get('completion_rate', 0) * 100)}%，近7天互动 {signals.get('chat_frequency_7d', 0)} 次。",
+                action_hint="建议推送诊断题+视频，并安排一次课后沟通。",
+                alert_key=f"student-risk-{sid}",
+                student_id=sid,
+            ))
+
+    # 控制返回数量，按严重级别排序
+    level_order = {"high": 0, "medium": 1, "low": 2}
+    alerts.sort(key=lambda x: level_order.get(x.level, 9))
+    return alerts[:20]
+
+
+@router.get("/teaching-alerts/ignored", response_model=List[str])
+async def get_ignored_teaching_alerts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """获取当前用户已忽略的提醒键。"""
+    if current_user.role not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可访问")
+
+    rows = db.query(AlertPreference).filter(
+        AlertPreference.user_id == current_user.id,
+        AlertPreference.is_ignored == True
+    ).all()
+    return [r.alert_key for r in rows]
+
+
+@router.post("/teaching-alerts/state")
+async def update_teaching_alert_state(
+    req: AlertStateUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """更新提醒忽略状态。"""
+    if current_user.role not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可访问")
+
+    row = db.query(AlertPreference).filter(
+        AlertPreference.user_id == current_user.id,
+        AlertPreference.alert_key == req.alert_key
+    ).first()
+
+    if row:
+        row.is_ignored = bool(req.ignored)
+    else:
+        row = AlertPreference(
+            user_id=current_user.id,
+            alert_key=req.alert_key,
+            is_ignored=bool(req.ignored),
+        )
+        db.add(row)
+
+    db.commit()
+    return {"message": "状态已更新", "alert_key": req.alert_key, "ignored": bool(req.ignored)}
+
+
+@router.delete("/teaching-alerts/ignored")
+async def clear_ignored_teaching_alerts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """清空当前用户所有忽略提醒记录。"""
+    if current_user.role not in ("teacher", "admin"):
+        raise HTTPException(status_code=403, detail="仅教师或管理员可访问")
+
+    rows = db.query(AlertPreference).filter(AlertPreference.user_id == current_user.id).all()
+    count = 0
+    for row in rows:
+        if row.is_ignored:
+            row.is_ignored = False
+            count += 1
+    db.commit()
+    return {"message": f"已清空 {count} 条忽略记录"}
 
 
 @router.post("/questions/generate", response_model=List[QuestionItem])
@@ -455,4 +811,133 @@ def _analysis_data_from_submissions(db: Session, student_db_id: int) -> Dict[str
         "learning_behavior": learning_behavior,
         "knowledge_mastery": knowledge_mastery,
     }
+
+
+def _student_dynamic_signals(db: Session, student_id: int) -> Dict[str, Any]:
+    """动态监测：作业完成、章节学习（覆盖面）、对话频次。"""
+    class_ids = [c[0] for c in db.query(ClassStudent.class_id).filter(ClassStudent.student_id == student_id).all()]
+    assignment_query = db.query(Assignment)
+    if class_ids:
+        assignment_query = assignment_query.filter(Assignment.class_id.in_(class_ids))
+    assignments = assignment_query.all()
+    total_assignments = len(assignments)
+    assignment_ids = [a.id for a in assignments]
+
+    submitted = db.query(AssignmentSubmission).filter(AssignmentSubmission.student_id == student_id)
+    if assignment_ids:
+        submitted = submitted.filter(AssignmentSubmission.assignment_id.in_(assignment_ids))
+    submitted_rows = submitted.all()
+    completion_rate = (len(submitted_rows) / total_assignments) if total_assignments else 0.0
+
+    covered_topics = set()
+    for a in assignments:
+        qs = _normalize_assignment_questions(a.questions)
+        for q in qs:
+            text = str(q.get("question", "")).strip()
+            if text:
+                covered_topics.add(text[:24])
+
+    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    chat_count_7d = db.query(ChatHistory).filter(
+        ChatHistory.user_id == student_id,
+        ChatHistory.created_at >= seven_days_ago
+    ).count()
+
+    return {
+        "completion_rate": round(completion_rate, 4),
+        "covered_topics": len(covered_topics),
+        "chat_frequency_7d": int(chat_count_7d),
+    }
+
+
+def _build_teacher_report(db: Session, teacher_id: int) -> Dict[str, Any]:
+    classes = db.query(Class).filter(Class.teacher_id == teacher_id).all()
+    class_items: List[Dict[str, Any]] = []
+    all_scores: List[float] = []
+    all_completion: List[float] = []
+
+    student_ids = set()
+    for cls in classes:
+        members = db.query(ClassStudent).filter(ClassStudent.class_id == cls.id).all()
+        cls_student_ids = [m.student_id for m in members]
+        student_ids.update(cls_student_ids)
+
+        assignments = db.query(Assignment).filter(Assignment.class_id == cls.id).all()
+        assignment_ids = [a.id for a in assignments]
+        submissions = db.query(AssignmentSubmission).filter(AssignmentSubmission.assignment_id.in_(assignment_ids)).all() if assignment_ids else []
+
+        expected = max(len(cls_student_ids) * len(assignments), 1)
+        completion_rate = (len(submissions) / expected) if expected else 0.0
+        score_pct = [
+            (float(s.score or 0) / float(s.total_score)) * 100.0
+            for s in submissions if s.total_score and float(s.total_score) > 0
+        ]
+        avg_score = (sum(score_pct) / len(score_pct)) if score_pct else 0.0
+
+        class_items.append({
+            "class_id": cls.id,
+            "class_name": cls.name,
+            "student_count": len(cls_student_ids),
+            "assignment_count": len(assignments),
+            "submission_count": len(submissions),
+            "completion_rate": round(completion_rate, 4),
+            "avg_score_pct": round(avg_score, 2),
+        })
+        all_completion.append(completion_rate)
+        all_scores.extend(score_pct)
+
+    # 使用频率：教师聊天与资源产出
+    chat_rows = db.query(ChatHistory).filter(ChatHistory.user_id == teacher_id).all()
+    now_ts = datetime.utcnow().timestamp()
+    week_ago = now_ts - 7 * 24 * 3600
+    chat_7d = sum(1 for c in chat_rows if c.created_at and c.created_at.timestamp() >= week_ago)
+    avg_daily_chat = round(chat_7d / 7.0, 2)
+
+    # 自由偏好：从聊天内容提取高频教学关键词
+    keywords = ["数学", "语文", "英语", "物理", "化学", "生物", "历史", "地理", "实验", "提问", "分层", "互动", "作业"]
+    pref_counter: Dict[str, int] = {}
+    for row in chat_rows:
+        msg = row.message or ""
+        for kw in keywords:
+            if kw in msg:
+                pref_counter[kw] = pref_counter.get(kw, 0) + 1
+    preference_tags = [k for k, _ in sorted(pref_counter.items(), key=lambda x: x[1], reverse=True)[:6]]
+
+    avg_completion = round(sum(all_completion) / len(all_completion), 4) if all_completion else 0.0
+    avg_score = round(sum(all_scores) / len(all_scores), 2) if all_scores else 0.0
+    prep_recommendations: List[str] = []
+    if avg_completion < 0.7:
+        prep_recommendations.append("班级作业完成率偏低，建议备课时增加分层任务与阶段提醒。")
+    if avg_score < 70:
+        prep_recommendations.append("平均成绩偏低，建议在备课中加入基础巩固与错题复盘环节。")
+    if avg_daily_chat < 1:
+        prep_recommendations.append("教师系统使用频率较低，建议结合AI问答进行教案与题目预演。")
+    if not prep_recommendations:
+        prep_recommendations.append("当前教学节奏较稳定，可增加跨章节综合任务提升迁移能力。")
+
+    return {
+        "teacher_id": teacher_id,
+        "classes": class_items,
+        "student_score_overview": {
+            "avg_score_pct": avg_score,
+            "avg_completion_rate": avg_completion,
+            "student_count": float(len(student_ids)),
+        },
+        "usage_frequency": {
+            "chat_count_7d": chat_7d,
+            "avg_daily_chat_7d": avg_daily_chat,
+        },
+        "preference_tags": preference_tags,
+        "prep_recommendations": prep_recommendations,
+    }
+
+
+def _infer_student_profile(db: Session, student_id: int) -> Dict[str, Optional[str]]:
+    """从班级关系推断学生的学科与学段。"""
+    cls = db.query(Class).join(ClassStudent, Class.id == ClassStudent.class_id).filter(
+        ClassStudent.student_id == student_id
+    ).order_by(Class.created_at.desc()).first()
+    if not cls:
+        return {"subject": None, "grade": None}
+    return {"subject": cls.subject, "grade": cls.grade}
 

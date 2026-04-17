@@ -32,9 +32,25 @@
               <el-button type="primary" :loading="analyzing" @click="analyzeStudent">
                 开始分析
               </el-button>
-              <el-button @click="trainModel" :loading="training">训练模型</el-button>
+              <el-button @click="loadClassOverview" :loading="loadingClassOverview">刷新班级概览</el-button>
             </el-form-item>
           </el-form>
+
+          <div class="class-overview">
+            <h3>班级作业关联概览</h3>
+            <el-table :data="classOverview" size="small" style="width: 100%">
+              <el-table-column prop="class_name" label="班级" min-width="120" />
+              <el-table-column prop="student_count" label="学生数" width="90" />
+              <el-table-column prop="assignment_count" label="作业数" width="90" />
+              <el-table-column prop="submission_count" label="提交数" width="90" />
+              <el-table-column label="完成率" width="110">
+                <template #default="{ row }">{{ Math.round((row.completion_rate || 0) * 100) }}%</template>
+              </el-table-column>
+              <el-table-column label="均分" width="110">
+                <template #default="{ row }">{{ row.avg_score_pct || 0 }}%</template>
+              </el-table-column>
+            </el-table>
+          </div>
 
           <div v-if="analysisResult" class="analysis-result">
             <h3>分析结果</h3>
@@ -72,6 +88,29 @@
                 </li>
               </ul>
             </div>
+
+            <div class="recommendations" v-if="studentRecommendations">
+              <h4>自动推送测试题</h4>
+              <el-table :data="studentRecommendations.recommended_questions" size="small" style="width: 100%">
+                <el-table-column prop="question_id" label="题目ID" width="90" />
+                <el-table-column prop="question_type" label="类型" width="90" />
+                <el-table-column prop="question_content" label="题目内容" min-width="180" show-overflow-tooltip />
+                <el-table-column prop="reason" label="推荐原因" min-width="180" show-overflow-tooltip />
+              </el-table>
+            </div>
+
+            <div class="recommendations" v-if="studentRecommendations">
+              <h4>自动推送教学视频</h4>
+              <el-table :data="studentRecommendations.recommended_videos" size="small" style="width: 100%">
+                <el-table-column prop="title" label="视频主题" min-width="180" />
+                <el-table-column label="链接" min-width="220">
+                  <template #default="{ row }">
+                    <a :href="row.url" target="_blank" rel="noopener noreferrer">{{ row.url }}</a>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="reason" label="推荐原因" min-width="180" show-overflow-tooltip />
+              </el-table>
+            </div>
           </div>
         </el-card>
       </el-col>
@@ -81,16 +120,21 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { analysisApi } from '@/api/analysis'
 import * as classApi from '@/api/class'
 
+const route = useRoute()
 const selectedStudentId = ref(null)
 const studentOptions = ref([])
 const loadingStudents = ref(false)
 const analyzing = ref(false)
 const training = ref(false)
 const analysisResult = ref(null)
+const classOverview = ref([])
+const loadingClassOverview = ref(false)
+const studentRecommendations = ref(null)
 
 const loadStudents = async () => {
   loadingStudents.value = true
@@ -104,8 +148,19 @@ const loadStudents = async () => {
   }
 }
 
-onMounted(() => {
-  loadStudents()
+const applyRouteStudent = async () => {
+  const sid = route.query.sid
+  if (!sid) return
+  const n = Number(sid)
+  if (!Number.isFinite(n)) return
+  selectedStudentId.value = n
+  await analyzeStudent()
+}
+
+onMounted(async () => {
+  await loadStudents()
+  loadClassOverview()
+  applyRouteStudent()
 })
 
 const analyzeStudent = async () => {
@@ -117,6 +172,7 @@ const analyzeStudent = async () => {
   analyzing.value = true
   try {
     analysisResult.value = await analysisApi.analyzeStudent(String(selectedStudentId.value))
+    studentRecommendations.value = await analysisApi.getStudentRecommendations(selectedStudentId.value)
     ElMessage.success('分析完成')
   } catch (error) {
     ElMessage.error('分析失败：' + (error.response?.data?.detail || error.message))
@@ -134,6 +190,17 @@ const trainModel = async () => {
     ElMessage.error('训练失败：' + (error.response?.data?.detail || error.message))
   } finally {
     training.value = false
+  }
+}
+
+const loadClassOverview = async () => {
+  loadingClassOverview.value = true
+  try {
+    classOverview.value = await analysisApi.getClassOverview()
+  } catch (error) {
+    ElMessage.error('加载班级概览失败：' + (error.response?.data?.detail || error.message))
+  } finally {
+    loadingClassOverview.value = false
   }
 }
 
@@ -173,6 +240,10 @@ const getProgressColor = (score) => {
   padding: 20px;
   background-color: #fafafa;
   border-radius: 8px;
+}
+
+.class-overview {
+  margin-top: 20px;
 }
 
 .analysis-result h3 {

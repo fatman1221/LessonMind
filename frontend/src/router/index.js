@@ -40,6 +40,12 @@ const routes = [
         meta: { title: '学情分析', requiresTeacher: true }
       },
       {
+        path: '/teacher-report',
+        name: 'TeacherReport',
+        component: () => import('@/views/TeacherReport.vue'),
+        meta: { title: '备课报告', requiresTeacher: true }
+      },
+      {
         path: '/question-bank',
         name: 'QuestionBank',
         component: () => import('@/views/QuestionBank.vue'),

@@ -119,6 +119,7 @@
             style="width: 100%"
             format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DDTHH:mm:ss"
+            :disabled-date="disablePastDate"
           />
         </el-form-item>
       </el-form>
@@ -181,6 +182,7 @@
         <el-table-column prop="submitted_at" label="提交时间" width="180">
           <template #default="{ row }">
             {{ formatTime(row.submitted_at) }}
+            <el-tag v-if="row.is_late" type="warning" size="small" style="margin-left: 6px">补交</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="100">
@@ -334,11 +336,26 @@ const loadAssignments = async () => {
   loading.value = true
   try {
     assignmentList.value = await assignmentApi.getAssignments(filterClassId.value)
+    const now = Date.now()
+    const dueSoon = assignmentList.value.filter(a => {
+      if (!a.deadline || !a.is_published) return false
+      const diff = new Date(a.deadline).getTime() - now
+      return diff > 0 && diff <= 24 * 60 * 60 * 1000
+    })
+    if (dueSoon.length > 0) {
+      ElMessage.warning(`提醒：有 ${dueSoon.length} 份作业将在24小时内截止`)
+    }
   } catch (error) {
     ElMessage.error('加载作业列表失败：' + (error.response?.data?.detail || error.message))
   } finally {
     loading.value = false
   }
+}
+
+const disablePastDate = (date) => {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  return date.getTime() < todayStart
 }
 
 const loadQuestions = async () => {

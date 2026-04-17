@@ -47,7 +47,7 @@
               link
               type="primary"
               @click="doAssignment(row)"
-              :disabled="!row.is_published || isExpired(row.deadline)"
+              :disabled="!row.is_published"
             >
               {{ hasSubmitted(row.id) ? '查看' : '作答' }}
             </el-button>
@@ -265,14 +265,14 @@ const isDeadlineNear = (deadline) => {
 
 const getStatusText = (assignment) => {
   if (!assignment.is_published) return '未发布'
-  if (isExpired(assignment.deadline)) return '已过期'
+  if (isExpired(assignment.deadline) && !hasSubmitted(assignment.id)) return '已过期可补交'
   if (hasSubmitted(assignment.id)) return '已提交'
   return '待完成'
 }
 
 const getStatusTag = (assignment) => {
   if (!assignment.is_published) return 'info'
-  if (isExpired(assignment.deadline)) return 'danger'
+  if (isExpired(assignment.deadline) && !hasSubmitted(assignment.id)) return 'warning'
   if (hasSubmitted(assignment.id)) return 'success'
   return 'warning'
 }
@@ -289,17 +289,22 @@ const doAssignment = async (assignment) => {
       mySubmission.value = await assignmentApi.getMySubmission(assignment.id)
       if (mySubmission.value) {
         // 已提交，显示结果
-        answers.value = mySubmission.value.answers
+        Object.keys(answers).forEach(key => delete answers[key])
+        Object.entries(mySubmission.value.answers || {}).forEach(([key, value]) => {
+          answers[key] = value
+        })
       } else {
         // 未提交，初始化答案
+        Object.keys(answers).forEach(key => delete answers[key])
         questions.value.forEach(q => {
-          answers.value[q.id] = ''
+          answers[q.id] = ''
         })
       }
     } catch (error) {
       // 没有提交记录
+      Object.keys(answers).forEach(key => delete answers[key])
       questions.value.forEach(q => {
-        answers.value[q.id] = ''
+        answers[q.id] = ''
       })
     }
     
@@ -311,7 +316,7 @@ const doAssignment = async (assignment) => {
 
 const submitAssignment = async () => {
   // 检查是否所有题目都已作答
-  const unanswered = questions.value.filter(q => !answers.value[q.id] || answers.value[q.id].trim() === '')
+  const unanswered = questions.value.filter(q => !answers[q.id] || String(answers[q.id]).trim() === '')
   if (unanswered.length > 0) {
     ElMessage.warning(`还有 ${unanswered.length} 道题目未作答`)
     return
@@ -321,7 +326,7 @@ const submitAssignment = async () => {
   try {
     const result = await assignmentApi.submitAssignment(
       currentAssignment.value.id,
-      answers.value
+      answers
     )
     mySubmission.value = result
     submissionMap.value[currentAssignment.value.id] = result
@@ -335,16 +340,16 @@ const submitAssignment = async () => {
 }
 
 const getMyAnswer = (questionId) => {
-  return mySubmission.value?.answers[questionId] || '未作答'
+  return mySubmission.value?.answers[String(questionId)] || mySubmission.value?.answers[questionId] || '未作答'
 }
 
 const getResultTag = (questionId) => {
-  const result = mySubmission.value?.results?.results?.[questionId]
+  const result = mySubmission.value?.results?.results?.[String(questionId)] || mySubmission.value?.results?.results?.[questionId]
   return result?.is_correct ? 'success' : 'danger'
 }
 
 const getResultText = (questionId) => {
-  const result = mySubmission.value?.results?.results?.[questionId]
+  const result = mySubmission.value?.results?.results?.[String(questionId)] || mySubmission.value?.results?.results?.[questionId]
   return result?.is_correct ? '正确' : '错误'
 }
 

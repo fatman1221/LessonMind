@@ -12,7 +12,8 @@
       </template>
 
       <!-- 教学设计列表 -->
-      <el-table :data="designList" v-loading="loading" style="width: 100%">
+      <el-empty v-if="!loading && designList.length === 0" description="暂无教学设计，请点击右上角“新建教学设计”生成" />
+      <el-table v-else :data="designList" v-loading="loading" style="width: 100%">
         <el-table-column prop="subject" label="学科" width="100" />
         <el-table-column prop="grade" label="学段" width="100" />
         <el-table-column prop="topic" label="课时主题" min-width="200" />
